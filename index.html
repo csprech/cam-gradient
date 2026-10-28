@@ -1,0 +1,663 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Cam Gradient — live gradients from your camera</title>
+<style>
+  :root{
+    --glass: rgba(18,18,22,.55); --line: rgba(255,255,255,.12); --txt:#f3f3f5; --dim:rgba(243,243,245,.6);
+    --accent:#fff; --r:14px;
+    font: 13px/1.35 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", "Segoe UI", system-ui, sans-serif;
+    color: var(--txt);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;overflow:hidden;background:#111}
+  #stage{position:fixed;inset:0;width:100vw;height:100vh;display:block}
+  .glass{background:var(--glass);border:1px solid var(--line);border-radius:var(--r);
+    -webkit-backdrop-filter:blur(18px) saturate(140%);backdrop-filter:blur(18px) saturate(140%);
+    box-shadow:0 8px 30px rgba(0,0,0,.25)}
+  #ui{transition:opacity .25s}
+  body.hide-ui #ui{opacity:0;pointer-events:none}
+  button,select{font:inherit;color:inherit}
+  .btn{background:rgba(255,255,255,.1);border:1px solid var(--line);border-radius:10px;padding:7px 12px;cursor:pointer;white-space:nowrap}
+  .btn:hover{background:rgba(255,255,255,.18)}
+  .btn.primary{background:#fff;color:#111;border-color:#fff;font-weight:600}
+  .btn.primary:hover{background:#e9e9ee}
+  select{background:rgba(255,255,255,.1);border:1px solid var(--line);border-radius:10px;padding:6px 8px;max-width:220px}
+  select option{color:#111}
+
+  #top{position:fixed;left:16px;top:16px;display:flex;gap:10px;align-items:center;padding:8px 10px 8px 14px;flex-wrap:wrap;max-width:calc(100vw - 340px)}
+  #brand{font-weight:650;letter-spacing:.2px;display:flex;align-items:center;gap:8px}
+  #dot{width:8px;height:8px;border-radius:50%;background:#888;box-shadow:0 0 0 3px rgba(255,255,255,.08)}
+  #dot.live{background:#3ddc84;box-shadow:0 0 0 3px rgba(61,220,132,.25)}
+  #dot.frozen{background:#7cc4ff;box-shadow:0 0 0 3px rgba(124,196,255,.25)}
+  #status{color:var(--dim)}
+
+  #panel{position:fixed;right:16px;top:16px;width:290px;max-height:calc(100vh - 32px);overflow:auto;padding:0}
+  #panel header{display:flex;justify-content:space-between;align-items:center;padding:11px 14px;cursor:pointer;user-select:none}
+  #panel header b{font-weight:650}
+  #panel .chev{transition:transform .2s;opacity:.7}
+  #panel.collapsed .chev{transform:rotate(-90deg)}
+  #panel.collapsed .body{display:none}
+  #panel .body{padding:2px 14px 14px;border-top:1px solid var(--line)}
+  .sec{margin-top:12px}
+  .sec h4{margin:0 0 8px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--dim)}
+  .seg{display:flex;background:rgba(255,255,255,.07);border:1px solid var(--line);border-radius:10px;padding:2px}
+  .seg button{flex:1;border:0;background:transparent;padding:6px 0;border-radius:8px;cursor:pointer;color:var(--dim)}
+  .seg button.on{background:rgba(255,255,255,.9);color:#111;font-weight:600}
+  .row{display:grid;grid-template-columns:82px 1fr 34px;gap:8px;align-items:center;margin:7px 0}
+  .row label{color:var(--dim)}
+  .row output{text-align:right;font-variant-numeric:tabular-nums;color:var(--dim);font-size:12px}
+  input[type=range]{-webkit-appearance:none;appearance:none;width:100%;height:4px;border-radius:4px;background:rgba(255,255,255,.18);outline:none}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;background:#fff;border:0;cursor:pointer;box-shadow:0 1px 4px rgba(0,0,0,.4)}
+  input[type=range]::-moz-range-thumb{width:14px;height:14px;border-radius:50%;background:#fff;border:0}
+  .tog{display:flex;justify-content:space-between;align-items:center;margin:8px 0;cursor:pointer;user-select:none}
+  .tog span{color:var(--dim)}
+  .sw{position:relative;width:32px;height:18px;border-radius:9px;background:rgba(255,255,255,.2);transition:background .2s;flex:none}
+  .sw::after{content:"";position:absolute;left:2px;top:2px;width:14px;height:14px;border-radius:50%;background:#fff;transition:transform .2s}
+  .tog.on .sw{background:#3ddc84}
+  .tog.on .sw::after{transform:translateX(14px)}
+  .exp{display:flex;gap:8px;margin-top:8px}
+  .exp .btn{flex:1}
+  #res{width:100%;max-width:none}
+  .keys{margin-top:12px;color:var(--dim);font-size:11.5px;line-height:1.7}
+  kbd{font:11px ui-monospace,SFMono-Regular,Menlo,monospace;background:rgba(255,255,255,.12);border:1px solid var(--line);border-bottom-width:2px;border-radius:5px;padding:0 5px}
+
+  #palette{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);display:flex;gap:6px;padding:6px}
+  .swatch{width:84px;border-radius:10px;overflow:hidden;cursor:pointer;border:1px solid rgba(255,255,255,.15);background:rgba(0,0,0,.2);transition:transform .15s}
+  .swatch:hover{transform:translateY(-2px)}
+  .swatch .chip{height:40px}
+  .swatch .hex{font:11.5px ui-monospace,SFMono-Regular,Menlo,monospace;text-align:center;padding:5px 0 6px;letter-spacing:.03em}
+  .swatch .share{height:2px;background:rgba(255,255,255,.7);transition:width .3s}
+
+  #preview{position:fixed;left:16px;bottom:18px;width:176px;aspect-ratio:4/3;object-fit:cover;border-radius:12px;border:1px solid rgba(255,255,255,.2);
+    box-shadow:0 8px 30px rgba(0,0,0,.3);background:#000;transform:scaleX(-1);transition:opacity .2s}
+  #preview.off{opacity:0;pointer-events:none}
+
+  #toast{position:fixed;left:50%;top:18px;transform:translate(-50%,-8px);padding:8px 14px;opacity:0;transition:all .2s;pointer-events:none;z-index:10}
+  #toast.show{opacity:1;transform:translate(-50%,0)}
+  #err{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(440px,calc(100vw - 32px));padding:18px 20px;display:none;z-index:9}
+  #err.show{display:block}
+  #err h3{margin:0 0 6px;font-size:15px}
+  #err p{margin:0 0 12px;color:var(--dim)}
+  #err .actions{display:flex;gap:8px;justify-content:flex-end}
+  #hint{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);text-align:center;pointer-events:none;transition:opacity .4s}
+  #hint h1{font-size:clamp(28px,5vw,54px);margin:0 0 6px;font-weight:700;letter-spacing:-.02em;text-shadow:0 2px 24px rgba(0,0,0,.25)}
+  #hint p{margin:0;color:rgba(255,255,255,.8);text-shadow:0 1px 10px rgba(0,0,0,.3)}
+  body.live #hint{opacity:0}
+  @media (max-width:720px){ #top{max-width:calc(100vw - 32px)} #panel{top:auto;bottom:16px;width:calc(100vw - 32px);max-height:50vh} #palette{bottom:auto;top:76px} .swatch{width:60px} #preview{display:none}}
+</style>
+</head>
+<body>
+<canvas id="stage"></canvas>
+
+<div id="ui">
+  <div id="hint"><h1>Cam Gradient</h1><p>Live mesh gradients from the colors your camera sees.</p></div>
+
+  <div id="top" class="glass">
+    <div id="brand"><span id="dot"></span>Cam Gradient</div>
+    <span id="status">Demo palette</span>
+    <button id="startBtn" class="btn primary">Start camera</button>
+    <select id="camSel" title="Choose camera" hidden></select>
+    <button id="stopBtn" class="btn" hidden>Stop</button>
+  </div>
+
+  <div id="panel" class="glass">
+    <header id="panelHead"><b>Controls</b><span class="chev">▾</span></header>
+    <div class="body">
+      <div class="sec">
+        <h4>Style</h4>
+        <div class="seg" id="styleSeg">
+          <button data-style="0" class="on">Mesh</button>
+          <button data-style="1">Linear</button>
+          <button data-style="2">Radial</button>
+        </div>
+      </div>
+      <div class="sec">
+        <h4>Palette</h4>
+        <div class="row"><label for="count">Colors</label><input id="count" type="range" min="2" max="6" step="1" value="5"><output></output></div>
+        <div class="row"><label for="smooth">Smoothness</label><input id="smooth" type="range" min="0" max="1" step="0.01" value="0.55"><output></output></div>
+        <div class="row"><label for="vibrance">Vibrance</label><input id="vibrance" type="range" min="0" max="2" step="0.01" value="1.2"><output></output></div>
+        <div class="tog" id="freezeTog"><span>Freeze colors <kbd>Space</kbd></span><div class="sw"></div></div>
+      </div>
+      <div class="sec">
+        <h4>Look</h4>
+        <div class="row"><label for="speed">Speed</label><input id="speed" type="range" min="0" max="1" step="0.01" value="0.35"><output></output></div>
+        <div class="row"><label for="soft">Softness</label><input id="soft" type="range" min="0" max="1" step="0.01" value="0.6"><output></output></div>
+        <div class="row"><label for="warp">Warp</label><input id="warp" type="range" min="0" max="1" step="0.01" value="0.4"><output></output></div>
+        <div class="row"><label for="grain">Grain</label><input id="grain" type="range" min="0" max="1" step="0.01" value="0.15"><output></output></div>
+        <div class="tog on" id="previewTog"><span>Camera preview</span><div class="sw"></div></div>
+      </div>
+      <div class="sec">
+        <h4>Export</h4>
+        <select id="res">
+          <option value="screen">Screen size (×DPR)</option>
+          <option value="1920x1080">1920 × 1080 (HD)</option>
+          <option value="2560x1440" selected>2560 × 1440 (QHD)</option>
+          <option value="3840x2160">3840 × 2160 (4K)</option>
+          <option value="2880x1800">2880 × 1800 (MacBook)</option>
+          <option value="1290x2796">1290 × 2796 (iPhone)</option>
+          <option value="2048x2048">2048 × 2048 (Square)</option>
+        </select>
+        <div class="exp">
+          <button id="pngBtn" class="btn">Save PNG</button>
+          <button id="cssBtn" class="btn">Copy CSS</button>
+        </div>
+      </div>
+      <div class="keys"><kbd>Space</kbd> freeze &nbsp; <kbd>H</kbd> hide UI &nbsp; <kbd>F</kbd> fullscreen &nbsp; <kbd>S</kbd> save PNG<br><span id="rendererInfo"></span></div>
+    </div>
+  </div>
+
+  <div id="palette" class="glass"></div>
+  <video id="preview" class="off" playsinline muted autoplay></video>
+
+  <div id="err" class="glass" role="alert">
+    <h3 id="errTitle">Camera unavailable</h3>
+    <p id="errMsg"></p>
+    <div class="actions"><button class="btn" id="errClose">Keep demo</button><button class="btn primary" id="errRetry">Try again</button></div>
+  </div>
+</div>
+<div id="toast" class="glass"></div>
+
+<script>
+(() => {
+'use strict';
+const $ = s => document.querySelector(s);
+const MAXC = 6;
+
+/* ---------------- state ---------------- */
+const S = {
+  count: 5, smooth: .55, vibrance: 1.2, speed: .35, soft: .6, warp: .4, grain: .15,
+  style: 0, frozen: false, preview: true, live: false
+};
+
+/* ---------------- color math (sRGB <-> OKLab) ---------------- */
+const s2l = c => c <= .04045 ? c / 12.92 : Math.pow((c + .055) / 1.055, 2.4);
+const l2s = c => c <= .0031308 ? c * 12.92 : 1.055 * Math.pow(c, 1 / 2.4) - .055;
+const LUT = new Float32Array(256); for (let i = 0; i < 256; i++) LUT[i] = s2l(i / 255);
+function linToLab(r, g, b, out) {
+  const l = Math.cbrt(.4122214708*r + .5363325363*g + .0514459929*b);
+  const m = Math.cbrt(.2119034982*r + .6806995451*g + .1073969566*b);
+  const s = Math.cbrt(.0883024619*r + .2817188376*g + .6299787005*b);
+  out[0] = .2104542553*l + .7936177850*m - .0040720468*s;
+  out[1] = 1.9779984951*l - 2.4285922050*m + .4505937099*s;
+  out[2] = .0259040371*l + .7827717662*m - .8086757660*s;
+  return out;
+}
+function labToSrgb(L, a, b) {
+  const l_ = L + .3963377774*a + .2158037573*b, m_ = L - .1055613458*a - .0638541728*b, s_ = L - .0894841775*a - 1.2914855480*b;
+  const l = l_*l_*l_, m = m_*m_*m_, s = s_*s_*s_;
+  const r = 4.0767416621*l - 3.3077115913*m + .2309699292*s;
+  const g = -1.2684380046*l + 2.6097574011*m - .3413193965*s;
+  const bb = -.0041960863*l - .7034186147*m + 1.7076147010*s;
+  const f = v => Math.round(Math.min(1, Math.max(0, l2s(Math.min(1, Math.max(0, v))))) * 255);
+  return [f(r), f(g), f(bb)];
+}
+const hexToLab = h => { const n = parseInt(h.slice(1), 16); return linToLab(LUT[n >> 16 & 255], LUT[n >> 8 & 255], LUT[n & 255], [0,0,0]); };
+const toHex = rgb => '#' + rgb.map(v => v.toString(16).padStart(2, '0')).join('').toUpperCase();
+
+/* ---------------- palette state ---------------- */
+// target = what the camera says now; disp = smoothed colors actually drawn (OKLab)
+const DEMO = ['#92B3C9', '#F66E56', '#7B8E54', '#F3D9B1', '#5B4B8A', '#C6D1D1'];
+let target = DEMO.map(hexToLab), disp = target.map(c => c.slice());
+let tShare = new Array(MAXC).fill(1 / MAXC), dShare = tShare.slice();
+
+function vib(c) { return [c[0], c[1] * S.vibrance, c[2] * S.vibrance]; }
+function currentPalette() {
+  return disp.slice(0, S.count).map((c, i) => { const v = vib(c); return { lab: v, hex: toHex(labToSrgb(v[0], v[1], v[2])), share: dShare[i] }; });
+}
+
+/* ---------------- motion: control points (shared by GL, 2D, CSS) ---------------- */
+const FX = [.31, .23, .37, .19, .27, .41], FY = [.27, .35, .21, .33, .39, .17];
+const PX = [0, 2.1, 4.2, 1.3, 3.7, 5.3], PY = [1.1, 3.3, .4, 5.0, 2.6, 4.4];
+const HOME = [[.2,.25],[.8,.2],[.75,.8],[.25,.78],[.5,.5],[.55,.15]];
+let time = 0, angle = .6;
+function points(t) {
+  const p = [];
+  for (let i = 0; i < MAXC; i++) {
+    p.push([HOME[i][0] + .26 * Math.sin(t * FX[i] + PX[i]) + .07 * Math.sin(t * FY[i] * 2.3 + PY[i]),
+            HOME[i][1] + .24 * Math.cos(t * FY[i] + PY[i]) + .07 * Math.cos(t * FX[i] * 1.9 + PX[i])]);
+  }
+  return p;
+}
+function radialCenter(pts) { return [pts[0][0] * .35 + .5 * .65, pts[0][1] * .35 + .5 * .65]; }
+
+/* ---------------- renderer: WebGL ---------------- */
+const canvas = $('#stage');
+const forced2d = /[?&]renderer=2d/.test(location.search);
+let gl = null, prog, U = {};
+const VS = 'attribute vec2 p;void main(){gl_Position=vec4(p,0.,1.);}';
+const FS = `
+precision highp float;
+uniform vec2 u_res; uniform float u_time, u_count, u_soft, u_warp, u_grain, u_style, u_angle, u_seed;
+uniform vec3 u_col[6]; uniform vec2 u_pt[6]; uniform float u_w[6];
+float hash(vec2 p){ p=fract(p*vec2(123.34,456.21)); p+=dot(p,p+45.32); return fract(p.x*p.y); }
+float vnoise(vec2 p){ vec2 i=floor(p), f=fract(p); vec2 u=f*f*(3.-2.*f);
+  return mix(mix(hash(i),hash(i+vec2(1.,0.)),u.x), mix(hash(i+vec2(0.,1.)),hash(i+vec2(1.,1.)),u.x), u.y); }
+float fbm(vec2 p){ float s=0., a=.5; for(int i=0;i<4;i++){ s+=a*vnoise(p); p=p*2.03+17.1; a*=.5; } return s; }
+vec3 lab2lin(vec3 c){
+  float l_=c.x+.3963377774*c.y+.2158037573*c.z, m_=c.x-.1055613458*c.y-.0638541728*c.z, s_=c.x-.0894841775*c.y-1.2914855480*c.z;
+  float l=l_*l_*l_, m=m_*m_*m_, s=s_*s_*s_;
+  return vec3(4.0767416621*l-3.3077115913*m+.2309699292*s, -1.2684380046*l+2.6097574011*m-.3413193965*s, -.0041960863*l-.7034186147*m+1.7076147010*s);
+}
+vec3 lin2srgb(vec3 c){ c=clamp(c,0.,1.); return mix(c*12.92, 1.055*pow(c,vec3(1./2.4))-.055, step(vec3(.0031308),c)); }
+void main(){
+  vec2 uv = gl_FragCoord.xy/u_res; uv.y = 1.-uv.y;
+  float asp = u_res.x/u_res.y;
+  vec2 q = vec2(uv.x*asp, uv.y);
+  float t = u_time;
+  vec2 w = vec2(fbm(q*1.5+vec2(t*.11,-t*.07)), fbm(q*1.5+vec2(5.2-t*.09,1.3+t*.08)))-.5;
+  q += w*u_warp*1.3;
+  vec3 acc=vec3(0.); float tot=0.;
+  if (u_style < .5) {
+    float pw = mix(5.5, 1.3, u_soft);
+    for (int i=0;i<6;i++){ if(float(i)>=u_count) break;
+      vec2 c = vec2(u_pt[i].x*asp, u_pt[i].y);
+      float wt = u_w[i]/pow(length(q-c)+.03, pw);
+      acc += u_col[i]*wt; tot += wt; }
+  } else {
+    float f;
+    vec2 cc = vec2(.5*asp,.5);
+    if (u_style < 1.5) { vec2 d = vec2(cos(u_angle), sin(u_angle)); f = dot(q-cc,d)/(abs(d.x)*asp+abs(d.y)) + .5; }
+    else { vec2 rc = (u_pt[0]*.35 + vec2(.5)*.65); rc.x *= asp; f = length(q-rc)/(.55*length(vec2(asp,1.))); }
+    f = clamp(f,0.,1.)*(u_count-1.);
+    float s = mix(.05, 1.1, u_soft);
+    for (int i=0;i<6;i++){ if(float(i)>=u_count) break;
+      float d = f-float(i); float wt = exp(-d*d/s)+1e-5;
+      acc += u_col[i]*wt; tot += wt; }
+  }
+  vec3 col = lin2srgb(lab2lin(acc/max(tot,1e-6)));
+  vec2 gp = floor(gl_FragCoord.xy/max(1.,u_res.y/1200.));
+  float g = hash(gp + u_seed) - .5;
+  col += g*u_grain*.32;
+  col += (hash(gl_FragCoord.xy*.731+u_seed)-.5)/255.;
+  gl_FragColor = vec4(col,1.);
+}`;
+function initGL() {
+  if (forced2d) return false;
+  try {
+    gl = canvas.getContext('webgl', { preserveDrawingBuffer: true, antialias: false, alpha: false, premultipliedAlpha: false })
+      || canvas.getContext('experimental-webgl', { preserveDrawingBuffer: true });
+    if (!gl) return false;
+    const sh = (type, src) => { const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+      if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; };
+    prog = gl.createProgram();
+    gl.attachShader(prog, sh(gl.VERTEX_SHADER, VS)); gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, FS));
+    gl.linkProgram(prog);
+    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
+    gl.useProgram(prog);
+    const buf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 3,-1, -1,3]), gl.STATIC_DRAW);
+    const loc = gl.getAttribLocation(prog, 'p'); gl.enableVertexAttribArray(loc); gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+    ['u_res','u_time','u_count','u_soft','u_warp','u_grain','u_style','u_angle','u_seed','u_col[0]','u_pt[0]','u_w[0]']
+      .forEach(n => U[n.replace('[0]', '')] = gl.getUniformLocation(prog, n));
+    return true;
+  } catch (e) { console.warn('WebGL unavailable, using Canvas2D fallback:', e.message); gl = null; return false; }
+}
+const colBuf = new Float32Array(18), ptBuf = new Float32Array(12), wBuf = new Float32Array(6);
+function fillUniformData() {
+  const pal = currentPalette(), pts = points(time);
+  for (let i = 0; i < MAXC; i++) {
+    const c = pal[Math.min(i, pal.length - 1)].lab;
+    colBuf[i*3] = c[0]; colBuf[i*3+1] = c[1]; colBuf[i*3+2] = c[2];
+    ptBuf[i*2] = pts[i][0]; ptBuf[i*2+1] = pts[i][1];
+    wBuf[i] = .45 + .55 * Math.min(2.5, dShare[i] * S.count);
+  }
+  return { pal, pts };
+}
+function drawGL(w, h, seed) {
+  fillUniformData();
+  gl.viewport(0, 0, w, h);
+  gl.uniform2f(U.u_res, w, h); gl.uniform1f(U.u_time, time); gl.uniform1f(U.u_count, S.count);
+  gl.uniform1f(U.u_soft, S.soft); gl.uniform1f(U.u_warp, S.warp); gl.uniform1f(U.u_grain, S.grain);
+  gl.uniform1f(U.u_style, S.style); gl.uniform1f(U.u_angle, angle); gl.uniform1f(U.u_seed, seed);
+  gl.uniform3fv(U.u_col, colBuf); gl.uniform2fv(U.u_pt, ptBuf); gl.uniform1fv(U.u_w, wBuf);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+}
+
+/* ---------------- renderer: Canvas2D fallback ---------------- */
+let ctx2d = null, small, sctx2, grainTile;
+function hashJ(x, y) { x = (x * 123.34) % 1; y = (y * 456.21) % 1; if (x < 0) x += 1; if (y < 0) y += 1;
+  const d = x * (x + 45.32) + y * (y + 45.32); x += d; y += d; const v = (x * y) % 1; return v < 0 ? v + 1 : v; }
+function vnoiseJ(x, y) { const ix = Math.floor(x), iy = Math.floor(y), fx = x - ix, fy = y - iy;
+  const ux = fx * fx * (3 - 2 * fx), uy = fy * fy * (3 - 2 * fy);
+  const a = hashJ(ix, iy), b = hashJ(ix + 1, iy), c = hashJ(ix, iy + 1), d = hashJ(ix + 1, iy + 1);
+  return (a + (b - a) * ux) * (1 - uy) + (c + (d - c) * ux) * uy; }
+function fbmJ(x, y) { let s = 0, a = .5; for (let i = 0; i < 3; i++) { s += a * vnoiseJ(x, y); x = x * 2.03 + 17.1; y = y * 2.03 + 17.1; a *= .5; } return s; }
+function initCanvas2D() {
+  ctx2d = canvas.getContext('2d');
+  small = document.createElement('canvas'); sctx2 = small.getContext('2d');
+  grainTile = document.createElement('canvas'); grainTile.width = grainTile.height = 192;
+  const g = grainTile.getContext('2d'), id = g.createImageData(192, 192);
+  for (let i = 0; i < id.data.length; i += 4) { const v = Math.random() * 255; id.data[i] = id.data[i+1] = id.data[i+2] = v; id.data[i+3] = 255; }
+  g.putImageData(id, 0, 0);
+}
+function draw2D(target2d, w, h) {
+  const { pal, pts } = fillUniformData();
+  const sw = 120, sh = Math.max(24, Math.round(sw * h / w));
+  small.width = sw; small.height = sh;
+  const img = sctx2.createImageData(sw, sh), D = img.data, asp = w / h, n = S.count, t = time;
+  const pw = 5.5 + (1.3 - 5.5) * S.soft, sv = .05 + 1.05 * S.soft;
+  const rc = radialCenter(pts);
+  for (let y = 0; y < sh; y++) for (let x = 0; x < sw; x++) {
+    const u = (x + .5) / sw, v = (y + .5) / sh;
+    let qx = u * asp, qy = v;
+    qx += (fbmJ(qx * 1.5 + t * .11, qy * 1.5 - t * .07) - .5) * S.warp * 1.3;
+    qy += (fbmJ(qx * 1.5 + 5.2 - t * .09, qy * 1.5 + 1.3 + t * .08) - .5) * S.warp * 1.3;
+    let L = 0, A = 0, B = 0, tot = 0;
+    if (S.style === 0) {
+      for (let i = 0; i < n; i++) { const dx = qx - pts[i][0] * asp, dy = qy - pts[i][1];
+        const wt = wBuf[i] / Math.pow(Math.hypot(dx, dy) + .03, pw); const c = pal[i].lab;
+        L += c[0] * wt; A += c[1] * wt; B += c[2] * wt; tot += wt; }
+    } else {
+      let f;
+      if (S.style === 1) { const dx = Math.cos(angle), dy = Math.sin(angle); f = ((qx - .5 * asp) * dx + (qy - .5) * dy) / (Math.abs(dx) * asp + Math.abs(dy)) + .5; }
+      else f = Math.hypot(qx - rc[0] * asp, qy - rc[1]) / (.55 * Math.hypot(asp, 1));
+      f = Math.min(1, Math.max(0, f)) * (n - 1);
+      for (let i = 0; i < n; i++) { const d = f - i, wt = Math.exp(-d * d / sv) + 1e-5, c = pal[i].lab;
+        L += c[0] * wt; A += c[1] * wt; B += c[2] * wt; tot += wt; }
+    }
+    const rgb = labToSrgb(L / tot, A / tot, B / tot), k = (y * sw + x) * 4;
+    D[k] = rgb[0]; D[k+1] = rgb[1]; D[k+2] = rgb[2]; D[k+3] = 255;
+  }
+  sctx2.putImageData(img, 0, 0);
+  target2d.imageSmoothingEnabled = true; target2d.imageSmoothingQuality = 'high';
+  target2d.globalAlpha = 1; target2d.globalCompositeOperation = 'source-over';
+  target2d.drawImage(small, 0, 0, w, h);
+  if (S.grain > 0) {
+    target2d.globalCompositeOperation = 'overlay'; target2d.globalAlpha = S.grain * .5;
+    target2d.fillStyle = target2d.createPattern(grainTile, 'repeat');
+    target2d.save(); target2d.translate(-Math.random() * 192, -Math.random() * 192);
+    target2d.fillRect(0, 0, w + 192, h + 192); target2d.restore();
+    target2d.globalCompositeOperation = 'source-over'; target2d.globalAlpha = 1;
+  }
+}
+
+const useGL = initGL();
+if (!useGL) initCanvas2D();
+$('#rendererInfo').textContent = 'Renderer: ' + (useGL ? 'WebGL' : 'Canvas 2D (fallback)');
+
+function resize() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 2), scale = useGL ? 1 : .5;
+  canvas.width = Math.max(1, Math.round(innerWidth * dpr * scale));
+  canvas.height = Math.max(1, Math.round(innerHeight * dpr * scale));
+}
+addEventListener('resize', resize); resize();
+
+/* ---------------- camera ---------------- */
+const video = $('#preview');
+let stream = null, currentDeviceId = null;
+function showErr(title, msg) { $('#errTitle').textContent = title; $('#errMsg').textContent = msg; $('#err').classList.add('show'); }
+function hideErr() { $('#err').classList.remove('show'); }
+function explain(e) {
+  const n = e && e.name;
+  if (n === 'NotAllowedError' || n === 'SecurityError' || n === 'PermissionDeniedError')
+    return ['Camera access was blocked', 'Allow camera access for this page (Chrome: camera icon in the address bar; Safari: Settings → Websites → Camera). On a Mac also check System Settings → Privacy & Security → Camera for your browser, then try again.'];
+  if (n === 'NotFoundError' || n === 'DevicesNotFoundError' || n === 'OverconstrainedError')
+    return ['No camera found', 'No usable camera was detected. Connect a camera (or enable Continuity Camera) and try again.'];
+  if (n === 'NotReadableError' || n === 'TrackStartError')
+    return ['Camera is busy', 'Another app (FaceTime, Zoom, Photo Booth…) may be using the camera. Close it and try again.'];
+  return ['Could not start the camera', (e && e.message) || String(e)];
+}
+async function startCamera(deviceId) {
+  hideErr();
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    showErr('Camera API not available here', window.isSecureContext === false || location.protocol === 'file:'
+      ? 'This browser blocks the camera for this page. Serve it from localhost instead: run `python3 -m http.server` in this folder and open http://localhost:8000.'
+      : 'This browser does not support getUserMedia.');
+    return;
+  }
+  stopCamera(true);
+  setStatus('Requesting camera…');
+  try {
+    const video_c = { width: { ideal: 640 }, height: { ideal: 480 } };
+    if (deviceId) video_c.deviceId = { exact: deviceId };
+    stream = await navigator.mediaDevices.getUserMedia({ video: video_c, audio: false });
+    video.srcObject = stream;
+    await video.play().catch(() => {});
+    const track = stream.getVideoTracks()[0];
+    currentDeviceId = track && track.getSettings ? track.getSettings().deviceId : deviceId;
+    track && track.addEventListener('ended', () => { stopCamera(); showErr('Camera disconnected', 'The camera stopped sending video.'); });
+    S.live = true; document.body.classList.add('live');
+    $('#startBtn').hidden = true; $('#stopBtn').hidden = false;
+    video.classList.toggle('off', !S.preview);
+    setStatus(track ? track.label || 'Camera live' : 'Camera live');
+    await refreshDevices();
+  } catch (e) {
+    console.warn('getUserMedia failed:', e && e.name, e && e.message);
+    setStatus('Demo palette');
+    const [t, m] = explain(e); showErr(t, m);
+  }
+}
+function stopCamera(silent) {
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  stream = null; video.srcObject = null; S.live = false;
+  document.body.classList.remove('live'); video.classList.add('off');
+  $('#startBtn').hidden = false; $('#stopBtn').hidden = true;
+  if (!silent) setStatus('Camera off — palette held');
+}
+async function refreshDevices() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) return;
+  const devs = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput');
+  const sel = $('#camSel');
+  sel.innerHTML = '';
+  devs.forEach((d, i) => { const o = document.createElement('option'); o.value = d.deviceId; o.textContent = d.label || ('Camera ' + (i + 1)); if (d.deviceId === currentDeviceId) o.selected = true; sel.appendChild(o); });
+  sel.hidden = !(S.live && devs.length > 1);
+}
+$('#startBtn').onclick = () => startCamera(currentDeviceId);
+$('#stopBtn').onclick = () => stopCamera();
+$('#camSel').onchange = e => startCamera(e.target.value);
+$('#errRetry').onclick = () => startCamera(currentDeviceId);
+$('#errClose').onclick = hideErr;
+if (navigator.mediaDevices && navigator.mediaDevices.addEventListener) navigator.mediaDevices.addEventListener('devicechange', refreshDevices);
+
+/* ---------------- palette extraction: k-means in OKLab ---------------- */
+const SW = 48, SH = 36, NPX = SW * SH;
+const scan = document.createElement('canvas'); scan.width = SW; scan.height = SH;
+const sctx = scan.getContext('2d', { willReadFrequently: true });
+const PL = new Float32Array(NPX), PA = new Float32Array(NPX), PB = new Float32Array(NPX), asg = new Uint8Array(NPX);
+const tmp = [0, 0, 0];
+let samples = 0;
+function kmeans(k, init) {
+  const C = init.map(c => c.slice());
+  const d2 = (i, c) => { const a = PL[i] - c[0], b = PA[i] - c[1], e = PB[i] - c[2]; return a*a + b*b + e*e; };
+  // k-means++ for any missing seeds
+  while (C.length < k) {
+    let best = 0, bi = 0;
+    for (let i = 0; i < NPX; i += 3) { let m = Infinity; for (const c of C) m = Math.min(m, d2(i, c)); const s = m * (.5 + Math.random()); if (s > best) { best = s; bi = i; } }
+    C.push([PL[bi], PA[bi], PB[bi]]);
+  }
+  const cnt = new Array(k);
+  for (let it = 0; it < 7; it++) {
+    const sum = C.map(() => [0, 0, 0]); cnt.fill(0);
+    for (let i = 0; i < NPX; i++) {
+      let m = Infinity, mi = 0;
+      for (let j = 0; j < k; j++) { const d = d2(i, C[j]); if (d < m) { m = d; mi = j; } }
+      asg[i] = mi; cnt[mi]++; sum[mi][0] += PL[i]; sum[mi][1] += PA[i]; sum[mi][2] += PB[i];
+    }
+    for (let j = 0; j < k; j++) {
+      if (cnt[j]) { C[j] = [sum[j][0] / cnt[j], sum[j][1] / cnt[j], sum[j][2] / cnt[j]]; }
+      else { // empty cluster: reseed at the worst-fit pixel
+        let w = -1, wi = 0; for (let i = 0; i < NPX; i += 2) { const d = d2(i, C[asg[i]]); if (d > w) { w = d; wi = i; } }
+        C[j] = [PL[wi], PA[wi], PB[wi]]; cnt[j] = 1;
+      }
+    }
+  }
+  return { C, share: cnt.map(c => c / NPX) };
+}
+function samplePalette() {
+  if (!S.live || S.frozen || video.readyState < 2 || !video.videoWidth) return;
+  // center-crop to 4:3 so wide cameras sample the same framing as the preview
+  const vw = video.videoWidth, vh = video.videoHeight, ar = 4 / 3;
+  let sw = vw, sh = vh, sx = 0, sy = 0;
+  if (vw / vh > ar) { sw = vh * ar; sx = (vw - sw) / 2; } else { sh = vw / ar; sy = (vh - sh) / 2; }
+  sctx.drawImage(video, sx, sy, sw, sh, 0, 0, SW, SH);
+  const d = sctx.getImageData(0, 0, SW, SH).data;
+  for (let i = 0, p = 0; i < NPX; i++, p += 4) { linToLab(LUT[d[p]], LUT[d[p+1]], LUT[d[p+2]], tmp); PL[i] = tmp[0]; PA[i] = tmp[1]; PB[i] = tmp[2]; }
+  // warm-start from previous centroids so each slot keeps "its" color (no swapping / flicker)
+  let init = target.slice(0, S.count);
+  if (samples === 0) init = [];
+  const { C, share } = kmeans(S.count, init);
+  for (let j = 0; j < S.count; j++) { target[j] = C[j]; tShare[j] = share[j]; }
+  samples++;
+}
+setInterval(samplePalette, 110);
+
+function setCount(n) {
+  n = Math.max(2, Math.min(MAXC, n | 0));
+  if (n > S.count) {
+    // new slots start from the nearest existing color so they fade in rather than pop
+    for (let j = S.count; j < n; j++) { if (!S.live || samples === 0) { target[j] = hexToLab(DEMO[j]); } disp[j] = disp[j % S.count].slice(); if (!target[j]) target[j] = disp[j].slice(); dShare[j] = tShare[j] = 1 / n; }
+  } else if (S.live && samples) {
+    // keep the most dominant clusters
+    const idx = [...Array(S.count).keys()].sort((a, b) => tShare[b] - tShare[a]).slice(0, n).sort((a, b) => a - b);
+    const nt = idx.map(i => target[i]), nd = idx.map(i => disp[i]), ns = idx.map(i => tShare[i]), nds = idx.map(i => dShare[i]);
+    for (let j = 0; j < n; j++) { target[j] = nt[j]; disp[j] = nd[j]; tShare[j] = ns[j]; dShare[j] = nds[j]; }
+  }
+  S.count = n; buildSwatches();
+}
+
+/* ---------------- swatches ---------------- */
+const palEl = $('#palette');
+function buildSwatches() {
+  palEl.innerHTML = '';
+  for (let i = 0; i < S.count; i++) {
+    const el = document.createElement('div'); el.className = 'swatch'; el.title = 'Click to copy';
+    el.innerHTML = '<div class="chip"></div><div class="share"></div><div class="hex"></div>';
+    el.onclick = () => { const h = currentPalette()[i].hex; copyText(h).then(() => toast('Copied ' + h)); };
+    palEl.appendChild(el);
+  }
+  updateSwatches();
+}
+function updateSwatches() {
+  const pal = currentPalette(), els = palEl.children;
+  for (let i = 0; i < els.length && i < pal.length; i++) {
+    els[i].children[0].style.background = pal[i].hex;
+    els[i].children[1].style.width = Math.round(Math.min(1, pal[i].share * S.count / 2) * 100) + '%';
+    els[i].children[2].textContent = pal[i].hex;
+  }
+}
+
+/* ---------------- export ---------------- */
+function copyText(t) {
+  if (navigator.clipboard && window.isSecureContext !== false) return navigator.clipboard.writeText(t).catch(() => legacyCopy(t));
+  return Promise.resolve(legacyCopy(t));
+}
+function legacyCopy(t) { const ta = document.createElement('textarea'); ta.value = t; ta.style.position = 'fixed'; ta.style.opacity = '0'; document.body.appendChild(ta); ta.select(); try { document.execCommand('copy'); } catch (e) {} ta.remove(); }
+function cssGradient() {
+  const pal = currentPalette(), pts = points(time), n = pal.length, pc = v => (Math.round(v * 1000) / 10) + '%';
+  if (S.style === 1) {
+    const deg = Math.round(((90 + angle * 180 / Math.PI) % 360 + 360) % 360);
+    return `background: linear-gradient(${deg}deg, ${pal.map((c, i) => `${c.hex} ${Math.round(i / (n - 1) * 100)}%`).join(', ')});`;
+  }
+  if (S.style === 2) {
+    const rc = radialCenter(pts);
+    return `background: radial-gradient(circle at ${pc(rc[0])} ${pc(rc[1])}, ${pal.map((c, i) => `${c.hex} ${Math.round(i / (n - 1) * 100)}%`).join(', ')});`;
+  }
+  const base = pal.reduce((a, b) => (b.share > a.share ? b : a));
+  const reach = Math.round(45 + S.soft * 30);
+  const layers = pal.filter(c => c !== base).map((c) => { const i = pal.indexOf(c); return `radial-gradient(at ${pc(pts[i][0])} ${pc(pts[i][1])}, ${c.hex} 0px, transparent ${reach}%)`; });
+  return `background-color: ${base.hex};\nbackground-image:\n  ${layers.join(',\n  ')};`;
+}
+$('#cssBtn').onclick = () => copyText(cssGradient()).then(() => toast('CSS gradient copied'));
+
+let exporting = false;
+function exportSize() {
+  const v = $('#res').value; let w, h;
+  if (v === 'screen') { const dpr = window.devicePixelRatio || 1; w = Math.round(innerWidth * dpr); h = Math.round(innerHeight * dpr); }
+  else [w, h] = v.split('x').map(Number);
+  let max = 8192;
+  if (gl) max = Math.min(gl.getParameter(gl.MAX_RENDERBUFFER_SIZE), gl.getParameter(gl.MAX_VIEWPORT_DIMS)[0]);
+  const s = Math.min(1, max / Math.max(w, h)); return [Math.round(w * s), Math.round(h * s)];
+}
+async function exportPNG() {
+  if (exporting) return null; exporting = true;
+  const [w, h] = exportSize();
+  let blob;
+  try {
+    if (gl) {
+      const ow = canvas.width, oh = canvas.height;
+      canvas.width = w; canvas.height = h; drawGL(w, h, 3.7);
+      blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
+      canvas.width = ow; canvas.height = oh;
+    } else {
+      const c = document.createElement('canvas'); c.width = w; c.height = h; draw2D(c.getContext('2d'), w, h);
+      blob = await new Promise(r => c.toBlob(r, 'image/png'));
+    }
+    if (!blob) throw new Error('Image encoding failed');
+    const a = document.createElement('a'), d0 = new Date(), z = n => String(n).padStart(2, '0'), stamp = `${d0.getFullYear()}-${z(d0.getMonth()+1)}-${z(d0.getDate())}-${z(d0.getHours())}${z(d0.getMinutes())}${z(d0.getSeconds())}`;
+    a.href = URL.createObjectURL(blob); a.download = `cam-gradient-${w}x${h}-${stamp}.png`;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+    toast(`Saved ${w}×${h} PNG`);
+  } catch (e) { console.warn(e); toast('Export failed: ' + e.message); }
+  finally { exporting = false; }
+  return blob ? { w, h, size: blob.size } : null;
+}
+$('#pngBtn').onclick = exportPNG;
+
+/* ---------------- controls ---------------- */
+function fmt(id, v) { return id === 'count' ? String(v) : id === 'vibrance' ? v.toFixed(1) + '×' : Math.round(v * 100); }
+['count', 'smooth', 'vibrance', 'speed', 'soft', 'warp', 'grain'].forEach(id => {
+  const inp = $('#' + id), out = inp.parentElement.querySelector('output');
+  const apply = () => { const v = parseFloat(inp.value); if (id === 'count') setCount(v); else S[id] = v; out.textContent = fmt(id, v); };
+  inp.addEventListener('input', apply); apply();
+});
+$('#styleSeg').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return;
+  S.style = +b.dataset.style; [...$('#styleSeg').children].forEach(x => x.classList.toggle('on', x === b)); });
+function setFrozen(v) { S.frozen = v; $('#freezeTog').classList.toggle('on', v); toast(v ? 'Colors frozen' : 'Colors live'); }
+$('#freezeTog').onclick = () => setFrozen(!S.frozen);
+$('#previewTog').onclick = () => { S.preview = !S.preview; $('#previewTog').classList.toggle('on', S.preview); video.classList.toggle('off', !(S.preview && S.live)); };
+$('#panelHead').onclick = () => $('#panel').classList.toggle('collapsed');
+function toggleFullscreen() {
+  const d = document, el = d.documentElement;
+  if (d.fullscreenElement || d.webkitFullscreenElement) (d.exitFullscreen || d.webkitExitFullscreen).call(d);
+  else (el.requestFullscreen || el.webkitRequestFullscreen).call(el);
+}
+addEventListener('keydown', e => {
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  const tg = e.target; if (tg && (tg.tagName === 'SELECT' || (tg.tagName === 'INPUT' && tg.type !== 'range') || tg.tagName === 'TEXTAREA')) return;
+  const k = e.key.toLowerCase();
+  if (k === ' ') { e.preventDefault(); setFrozen(!S.frozen); }
+  else if (k === 'h') document.body.classList.toggle('hide-ui');
+  else if (k === 'f') toggleFullscreen();
+  else if (k === 's') exportPNG();
+  else if (k === 'escape') hideErr();
+});
+
+let toastT;
+function toast(m) { const t = $('#toast'); t.textContent = m; t.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), 1600); }
+function setStatus(s) { $('#status').textContent = s; }
+function updateDot() { const d = $('#dot'); d.classList.toggle('live', S.live && !S.frozen); d.classList.toggle('frozen', S.frozen); }
+
+/* ---------------- main loop ---------------- */
+let last = performance.now(), swT = 0, frames = 0;
+function frame(now) {
+  const dt = Math.min(.1, (now - last) / 1000); last = now;
+  const sp = S.speed * S.speed * 2.2;
+  time += dt * sp; angle += dt * sp * .12;
+  if (!S.frozen) {
+    const tau = .12 + S.smooth * S.smooth * 4, a = 1 - Math.exp(-dt / tau);
+    for (let j = 0; j < S.count; j++) {
+      for (let c = 0; c < 3; c++) disp[j][c] += (target[j][c] - disp[j][c]) * a;
+      dShare[j] += (tShare[j] - dShare[j]) * a;
+    }
+  }
+  if (!exporting) {
+    if (gl) drawGL(canvas.width, canvas.height, (frames % 64) * 1.37); else draw2D(ctx2d, canvas.width, canvas.height);
+  }
+  frames++;
+  if ((swT += dt) > .15) { swT = 0; updateSwatches(); updateDot(); }
+  requestAnimationFrame(frame);
+}
+buildSwatches();
+requestAnimationFrame(frame);
+
+// small hook for automated tests / tinkering from the console
+window.camGradient = { state: S, palette: () => currentPalette().map(c => c.hex), css: cssGradient, exportPNG, startCamera, stopCamera,
+  renderer: useGL ? 'webgl' : 'canvas2d', samples: () => samples };
+})();
+</script>
+</body>
+</html>
